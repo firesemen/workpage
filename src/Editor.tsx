@@ -1,5 +1,6 @@
 import { useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { uid, type Resume, type Experience, type Education } from "./model";
+import LanguageEditor from "./LanguageEditor";
 
 type Props = { resume: Resume; onChange: (r: Resume) => void; section: string };
 const titles: Record<string, [string, string, string]> = {
@@ -551,19 +552,7 @@ export default function Editor({ resume, onChange, section }: Props) {
               onChange={(e) => set("skills", e.target.value)}
             />
           </Field>
-          <Field
-            label="Языки"
-            hint="Один язык на строку. Укажите уровень: A1–C2 или понятное описание."
-          >
-            <textarea
-              className="textarea"
-              rows={4}
-              maxLength={3000}
-              value={resume.languages}
-              placeholder={"Русский — родной\nАнглийский — B2"}
-              onChange={(e) => set("languages", e.target.value)}
-            />
-          </Field>
+          <LanguageEditor value={resume.languages} onChange={value => set("languages", value)}/>
           <label className="visibility-toggle">
             <input
               type="checkbox"

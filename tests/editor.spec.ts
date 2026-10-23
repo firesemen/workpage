@@ -119,6 +119,57 @@ async function webpPhoto(page: Page) {
   });
 }
 
+test('language dropdowns save selected proficiency, custom languages and export them to PDF', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByRole('navigation').getByRole('button', { name: 'Навыки и языки' }).click();
+  await page.getByRole('button', { name: '+ Добавить язык', exact: true }).click();
+  const language = page.getByRole('combobox', { name: 'Язык 1', exact: true });
+  const options = await language.locator('option').allTextContents();
+  expect(options.slice(1, 5)).toEqual(['Английский', 'Китайский (мандаринский)', 'Хинди', 'Испанский']);
+  await language.selectOption('Английский');
+  await page.getByRole('combobox', { name: 'Уровень языка 1', exact: true }).selectOption('B2');
+  await page.getByRole('button', { name: '+ Добавить язык', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Язык 2', exact: true }).selectOption('Русский');
+  await page.getByRole('combobox', { name: 'Уровень языка 2', exact: true }).selectOption('родной');
+  await page.getByRole('button', { name: '+ Добавить язык', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Язык 3', exact: true }).selectOption('__custom');
+  await page.getByRole('textbox', { name: 'Название языка 3', exact: true }).fill('Татарский');
+  const expected = 'Английский — B2\nРусский — родной\nТатарский';
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('list-resume-v1') || '{}').languages)).toBe(expected);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+  await page.reload();
+  await page.getByRole('navigation').getByRole('button', { name: 'Навыки и языки' }).click();
+  await expect(page.getByRole('combobox', { name: 'Уровень языка 1', exact: true })).toHaveValue('B2');
+  await expect(page.getByRole('textbox', { name: 'Название языка 3', exact: true })).toHaveValue('Татарский');
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Скачать PDF', exact: true }).click();
+  const bytes = await readFile((await (await downloadPromise).path())!);
+  const task = getDocument({ data: new Uint8Array(bytes) });
+  const doc = await task.promise;
+  const content = await (await doc.getPage(1)).getTextContent();
+  const text = content.items.map(item => 'str' in item ? item.str : '').join(' ');
+  for (const line of expected.split('\n')) expect(text).toContain(line);
+  await task.destroy();
+  await page.getByRole('button', { name: 'Удалить язык 2', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('list-resume-v1') || '{}').languages)).toBe('Английский — B2\nТатарский');
+});
+
+test('language controls preserve legacy freeform levels when another language changes', async ({ page }) => {
+  await page.goto('/');
+  const backup = { ...emptyResume(), languages: 'Русский - родной\nАнглийский — В2\nТатарский — свободно' };
+  await page.locator('input[type=file][accept="application/json,.json"]').setInputFiles({
+    name: 'languages.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(backup)),
+  });
+  await page.getByRole('dialog').getByRole('button', { name: 'Продолжить', exact: true }).click();
+  await page.getByRole('navigation').getByRole('button', { name: 'Навыки и языки' }).click();
+  await expect(page.getByRole('combobox', { name: 'Уровень языка 1', exact: true })).toHaveValue('родной');
+  await expect(page.getByRole('combobox', { name: 'Уровень языка 2', exact: true })).toHaveValue('B2');
+  await expect(page.getByRole('combobox', { name: 'Уровень языка 3', exact: true })).toHaveValue('свободно');
+  await page.getByRole('combobox', { name: 'Уровень языка 2', exact: true }).selectOption('C1');
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('list-resume-v1') || '{}').languages)).toBe('Русский - родной\nАнглийский — C1\nТатарский — свободно');
+});
+
 async function expectPdfWithPhoto(page: Page) {
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Скачать PDF', exact: true }).click();

@@ -494,6 +494,9 @@ textarea.textarea {
   display: flex;
   gap: 3px;
 }
+.language-level-hint {
+  margin-top: 12px;
+}
 .entry-actions button {
   padding: 4px;
 }
