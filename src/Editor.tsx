@@ -1,6 +1,7 @@
 import { useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { uid, type Resume, type Experience, type Education } from "./model";
 import LanguageEditor from "./LanguageEditor";
+import SkillsEditor from "./SkillsEditor";
 
 type Props = { resume: Resume; onChange: (r: Resume) => void; section: string };
 const titles: Record<string, [string, string, string]> = {
@@ -539,19 +540,7 @@ export default function Editor({ resume, onChange, section }: Props) {
       )}
       {key === "skills" && (
         <>
-          <Field
-            label="Профессиональные навыки"
-            hint="Перечислите через запятую: инструменты, технологии, методы работы."
-          >
-            <textarea
-              className="textarea"
-              rows={5}
-              maxLength={5000}
-              value={resume.skills}
-              placeholder="Figma, Прототипирование, UX-исследования"
-              onChange={(e) => set("skills", e.target.value)}
-            />
-          </Field>
+          <SkillsEditor value={resume.skills} onChange={value => set("skills", value)}/>
           <LanguageEditor value={resume.languages} onChange={value => set("languages", value)}/>
           <label className="visibility-toggle">
             <input

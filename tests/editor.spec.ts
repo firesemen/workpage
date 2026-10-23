@@ -119,6 +119,62 @@ async function webpPhoto(page: Page) {
   });
 }
 
+test('skill search, suggestions and custom entries persist without adding unconfirmed skills', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByRole('navigation').getByRole('button', { name: 'Навыки и языки' }).click();
+  const search = page.getByRole('textbox', { name: 'Найти или ввести навык', exact: true });
+  const select = page.getByRole('combobox', { name: 'Выбрать навык из списка', exact: true });
+  await search.fill('питон');
+  await select.selectOption('Python');
+  const suggestions = page.getByRole('group', { name: 'Связанные навыки', exact: true });
+  await expect(suggestions.getByRole('button', { name: 'Добавить навык Pytest', exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('list-resume-v1') || '{}').skills)).toBe('Python');
+  await suggestions.getByRole('button', { name: 'Добавить навык Pytest', exact: true }).click();
+  await search.fill('Пользовательский навык');
+  await search.press('Enter');
+  await search.fill('python');
+  await page.getByRole('button', { name: 'Добавить введённое', exact: true }).click();
+  await expect(page.locator('.skill-notice')).toHaveText('Этот навык уже добавлен.');
+  const expected = 'Python, Pytest, Пользовательский навык';
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('list-resume-v1') || '{}').skills)).toBe(expected);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+  await page.screenshot({ path: testInfo.outputPath('skills-mobile.png'), fullPage: true });
+  await page.reload();
+  await page.getByRole('navigation').getByRole('button', { name: 'Навыки и языки' }).click();
+  await expect(page.getByRole('list', { name: 'Добавленные навыки' }).getByRole('listitem')).toHaveCount(3);
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Скачать PDF', exact: true }).click();
+  const bytes = await readFile((await (await downloadPromise).path())!);
+  const task = getDocument({ data: new Uint8Array(bytes) });
+  const doc = await task.promise;
+  const content = await (await doc.getPage(1)).getTextContent();
+  const text = content.items.map(item => 'str' in item ? item.str : '').join(' ');
+  for (const skill of expected.split(', ')) expect(text).toContain(skill);
+  expect(text).not.toContain('FastAPI');
+  await task.destroy();
+  await page.getByRole('button', { name: 'Удалить навык Pytest', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('list-resume-v1') || '{}').skills)).toBe('Python, Пользовательский навык');
+});
+
+test('legacy skill lists retain custom content and support alias-aware recommendations', async ({ page }) => {
+  await page.goto('/');
+  const skills = 'python, Golang\nПроектирование БД; Уникальный навык';
+  await page.locator('input[type=file][accept="application/json,.json"]').setInputFiles({
+    name: 'skills.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ ...emptyResume(), skills })),
+  });
+  await page.getByRole('dialog').getByRole('button', { name: 'Продолжить', exact: true }).click();
+  await page.getByRole('navigation').getByRole('button', { name: 'Навыки и языки' }).click();
+  await expect(page.getByRole('list', { name: 'Добавленные навыки' }).getByRole('listitem')).toHaveCount(4);
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('list-resume-v1') || '{}').skills)).toBe(skills);
+  await page.getByRole('group', { name: 'Связанные навыки' }).getByRole('button', { name: 'Добавить навык PostgreSQL', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('list-resume-v1') || '{}').skills)).toBe(skills + ', PostgreSQL');
+  const backupPromise = page.waitForEvent('download');
+  await actions(page, 'Сохранить JSON');
+  const backup = JSON.parse(await readFile((await (await backupPromise).path())!, 'utf8'));
+  expect(backup.skills).toBe(skills + ', PostgreSQL');
+});
+
 test('language dropdowns save selected proficiency, custom languages and export them to PDF', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
