@@ -29,7 +29,7 @@ await build({
 });
 const { render, sampleResume, emptyResume } = await import(pathToFileURL(modulePath));
 
-async function inspect(name, resume, expected, minPages = 1, maxPages = 20, absent = []) {
+async function inspect(name, resume, expected, minPages = 1, maxPages = 20, absent = [], checkPage = () => {}) {
   const bytes = await render(resume);
   const filename = path.join(work, name + '.pdf');
   await writeFile(filename, bytes);
@@ -42,6 +42,7 @@ async function inspect(name, resume, expected, minPages = 1, maxPages = 20, abse
     const page = await doc.getPage(n);
     assert(Math.abs(page.view[2] - 595.28) < 1 && Math.abs(page.view[3] - 841.89) < 1, 'Must be A4');
     const content = await page.getTextContent();
+    checkPage(content.items.filter(item => 'str' in item && item.str.trim()), n);
     assert(content.items.length > 0, `${name}: empty page ${n}`);
     for (const item of content.items) {
       if (!('str' in item)) continue;
@@ -82,5 +83,38 @@ for (const template of ['modern', 'classic']) {
 await inspect('empty', emptyResume(), ['Резюме'], 1, 1);
 const longTokens = { ...emptyResume(), name: 'Проверка длинных строк', link: 'https://example.org/' + 'portfolio'.repeat(24), projects: 'https://example.org/project\n' + 'Сверхдлинноеслово'.repeat(22) };
 await inspect('long-tokens', longTokens, ['Проверка длинных строк', 'https://example.org/project'], 1, 2);
+// Verify actual PDF spacing, title weights and preserved line breaks, including
+// Windows newlines and separator lines containing spaces/tabs.
+for (const template of ['modern', 'classic']) {
+  const projects = 'Генератор резюме\r\nОписание первого проекта\r\nhttps://example.org/resume\r\n \t\r\nУчастие в конференции\r\nТема: разработка демонстрационных проектов\r\n\r\n\r\nУчебный проект\r\nТема: моделирование космических данных';
+  await inspect(`${template}-project-groups`, { ...emptyResume(), template, projects },
+    ['Генератор резюме', 'Участие в конференции', 'Учебный проект'], 1, 1, [], items => {
+      const item = text => {
+        const found = items.find(i => i.str === text);
+        assert(found, `Missing project line: ${text}`);
+        return found;
+      };
+      const first = item('Генератор резюме');
+      const description = item('Описание первого проекта');
+      const url = item('https://example.org/resume');
+      const second = item('Участие в конференции');
+      const secondBody = item('Тема: разработка демонстрационных проектов');
+      const third = item('Учебный проект');
+      assert(first.transform[5] > description.transform[5] && description.transform[5] > url.transform[5], 'Single newlines must remain separate lines');
+      const normalGap = description.transform[5] - url.transform[5];
+      assert(url.transform[5] - second.transform[5] >= normalGap + 8, 'Projects need a visible gap');
+      assert(secondBody.transform[5] - third.transform[5] >= normalGap + 8, 'Every blank-line group needs a gap');
+      assert(first.fontName !== description.fontName, 'Project titles must use bold type');
+      assert(second.fontName === first.fontName && third.fontName === first.fontName, 'Every project needs a title');
+    });
+}
+const manyProjects = Array.from({ length: 20 }, (_, i) => `Проект номер ${i + 1}\nОписание проекта ${i + 1}\nЕщё одна строка описания`).join('\n\n');
+await inspect('project-groups-pagination', { ...emptyResume(), projects: manyProjects },
+  ['Проект номер 20', 'Описание проекта 20'], 2, 5, [], items => {
+    for (const title of items.filter(i => /^Проект номер \d+$/.test(i.str))) {
+      const number = title.str.match(/\d+$/)[0];
+      assert(items.some(i => i.str === `Описание проекта ${number}`), 'Project title must stay with its description');
+    }
+  });
 await rm(modulePath);
 console.log(`PDF artifacts: ${work}`);

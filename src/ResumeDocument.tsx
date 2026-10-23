@@ -37,13 +37,23 @@ function Paragraphs({ text, bullets = false }: { text: string; bullets?: boolean
 }
 
 function Projects({ text }: { text: string }) {
-  const lines = text.split('\n').filter(line => line.trim());
-  return <>{lines.map((line, i) => {
-    const value = line.trim();
-    const link = safeLink(value);
-    return link
-      ? <Text key={i} style={styles.text}><Link style={{ color: '#285c4f', textDecoration: 'none' }} src={link}>{value}</Link></Text>
-      : <Text key={i} style={[styles.text, i === 0 ? styles.entryTitle : {}]}>{value}</Text>;
+  // Blank lines separate projects, while a single newline stays inside a project.
+  // Normalize pasted Windows line endings and whitespace-only separator lines.
+  const projects = text.replace(/\r\n?/g, '\n').trim().split(/\n(?:[ \t]*\n)+/);
+  return <>{projects.map((project, projectIndex) => {
+    const lines = project.split('\n').map(line => line.trim()).filter(Boolean);
+    return <View key={projectIndex} style={{ marginTop: projectIndex ? 10 : 0 }}>
+      {lines.map((value, lineIndex) => {
+        const link = /^(https?:\/\/|www\.)/i.test(value) ? safeLink(value) : '';
+        const title = lineIndex === 0;
+        return <Text key={lineIndex}
+          style={[styles.text, title && !link ? styles.entryTitle : {}]}
+          minPresenceAhead={title && lines.length > 1 ? 28 : 0}
+          orphans={2} widows={2}>
+          {link ? <Link style={{ color: '#285c4f', textDecoration: 'none' }} src={link}>{value}</Link> : value}
+        </Text>;
+      })}
+    </View>;
   })}</>;
 }
 
