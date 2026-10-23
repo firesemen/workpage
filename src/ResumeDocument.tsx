@@ -15,19 +15,19 @@ Font.registerHyphenationCallback(word => word.length > 40 ? word.match(/.{1,20}/
 
 const styles = StyleSheet.create({
   page: { fontFamily: 'Noto Sans', color: '#26332f', fontSize: 10, lineHeight: 1.5, paddingHorizontal: 43, paddingTop: 39, paddingBottom: 72 },
-  header: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 12 },
+  header: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 8 },
   identity: { flexGrow: 1, flexShrink: 1 },
   name: { fontSize: 25, lineHeight: 1.2, fontWeight: 700, marginBottom: 6 },
   role: { fontSize: 12.5, marginBottom: 7 },
-  contact: { fontSize: 9, color: '#56645e', marginBottom: 2 },
+  contact: { fontSize: 9, color: '#56645e', marginBottom: 1 },
   contactLink: { color: '#56645e', textDecoration: 'none' },
   photo: { width: 68, height: 82, objectFit: 'cover', marginLeft: 18, borderRadius: 4 },
   heading: { fontSize: 10, fontWeight: 700, letterSpacing: 1.2, textTransform: 'uppercase', paddingBottom: 5, borderBottomWidth: 0.6, marginTop: 12, marginBottom: 7 },
   text: { marginBottom: 4 },
-  entry: { marginBottom: 9 },
+  entry: { marginBottom: 6 },
   entryTitle: { fontSize: 11, fontWeight: 700, lineHeight: 1.4 },
   entrySubtitle: { fontSize: 10, marginTop: 1 },
-  dates: { fontSize: 8.5, color: '#67736e', marginTop: 3, marginBottom: 5 },
+  dates: { fontSize: 8.5, color: '#67736e', marginTop: 2, marginBottom: 3 },
   bullet: { marginBottom: 3, paddingLeft: 9, textIndent: -9 },
   footer: { position: 'absolute', top: 780, left: 43, width: 509, fontSize: 8, color: '#7b8580', textAlign: 'right' },
 });
@@ -36,12 +36,28 @@ function Paragraphs({ text, bullets = false }: { text: string; bullets?: boolean
   return <>{text.split('\n').map((line, i) => line.trim() ? <Text key={i} style={bullets ? styles.bullet : styles.text} orphans={2} widows={2}>{bullets ? `• ${line.trim().replace(/^[•\-]\s*/, '')}` : /^https?:\/\//i.test(line.trim()) && safeLink(line.trim()) ? <Link style={{ color: '#285c4f', textDecoration: 'none' }} src={safeLink(line.trim())}>{line.trim()}</Link> : line.trim()}</Text> : null)}</>;
 }
 
+function Projects({ text }: { text: string }) {
+  const lines = text.split('\n').filter(line => line.trim());
+  return <>{lines.map((line, i) => {
+    const value = line.trim();
+    const link = safeLink(value);
+    return link
+      ? <Text key={i} style={styles.text}><Link style={{ color: '#285c4f', textDecoration: 'none' }} src={link}>{value}</Link></Text>
+      : <Text key={i} style={[styles.text, i === 0 ? styles.entryTitle : {}]}>{value}</Text>;
+  })}</>;
+}
+
+function displayPhone(value: string) {
+  const digits = value.replace(/\D/g, '').replace(/^8/, '7').replace(/^7/, '').slice(0, 10);
+  return digits.length === 10 ? `+7 ${digits.slice(0, 3)} ${digits.slice(3, 6)}-${digits.slice(6, 8)}-${digits.slice(8)}` : value;
+}
+
 export default function ResumeDocument({ resume: r }: { resume: Resume }) {
   const accent = r.template === 'modern' ? '#285c4f' : '#252b29';
   const visible = (key: string) => !r.hidden.includes(key);
   const hasExperience = r.experience.some(e => e.role.trim() || e.company.trim() || e.description.trim());
   const hasEducation = r.education.some(e => e.school.trim() || e.degree.trim() || e.year.trim());
-  const heading = (title: string) => <Text style={[styles.heading, { color: accent, borderBottomColor: r.template === 'modern' ? '#b6cec3' : '#b6bab8', letterSpacing: r.template === 'modern' ? 1.2 : 0.5, textAlign: r.template === 'classic' ? 'center' : 'left' }]} wrap={false} minPresenceAhead={90}>{title}</Text>;
+  const heading = (title: string) => <Text style={[styles.heading, { color: accent, borderBottomColor: r.template === 'modern' ? '#b6cec3' : '#b6bab8', letterSpacing: r.template === 'modern' ? 1.2 : 0.5, textAlign: 'left' }]} wrap={false} minPresenceAhead={90}>{title}</Text>;
   const section = (key: string, title: string, children: ReactNode, lead?: ReactNode) => visible(key) ? <View>{lead ? <View wrap={false}>{heading(title)}{lead}</View> : heading(title)}{children}</View> : null;
   const educationEntries = r.education.filter(e => e.school.trim() || e.degree.trim() || e.year.trim());
   const educationEntry = (e: Resume['education'][number]) => <View key={e.id} style={styles.entry}>
@@ -53,14 +69,13 @@ export default function ResumeDocument({ resume: r }: { resume: Resume }) {
   return <Document title={`${r.name.trim() || 'Резюме'}${r.title.trim() ? ` — ${r.title.trim()}` : ''}`} author={r.name} subject="Резюме" language="ru-RU" creator="Лист — редактор резюме">
     <Page size="A4" wrap style={[styles.page, r.density === 'compact' ? { fontSize: 9.5, lineHeight: 1.4, paddingHorizontal: 38, paddingTop: 32 } : {}]}>
       <View style={styles.header}>
-        <View style={[styles.identity, r.template === 'classic' && !r.photo ? { textAlign: 'center' } : {}]}>
+        <View style={styles.identity}>
           <Text style={[styles.name, { color: accent }]}>{r.name.trim() || 'Резюме'}</Text>
           {r.title.trim() && <Text style={styles.role}>{r.title.trim()}</Text>}
-          {r.city.trim() && <Text style={styles.contact}>{r.city.trim()}</Text>}
-          {r.email.trim() && <Text style={styles.contact}><Link style={styles.contactLink} src={`mailto:${r.email.trim()}`}>{r.email.trim()}</Link></Text>}
-          {r.phone.trim() && <Text style={styles.contact}><Link style={styles.contactLink} src={`tel:${r.phone.replace(/[^\d+]/g, '')}`}>{r.phone.trim()}</Link></Text>}
+          {(r.city.trim() || r.workFormat.trim()) && <Text style={styles.contact}>{[r.city.trim(), r.workFormat.trim()].filter(Boolean).join(' · ')}</Text>}
+          {(r.email.trim() || r.phone.trim()) && <Text style={styles.contact}>{r.email.trim() && <Link style={styles.contactLink} src={`mailto:${r.email.trim()}`}>{r.email.trim()}</Link>}{r.email.trim() && r.phone.trim() ? ' · ' : ''}{r.phone.trim() && <Link style={styles.contactLink} src={`tel:${r.phone.replace(/[^\d+]/g, '')}`}>{displayPhone(r.phone)}</Link>}</Text>}
           {r.link.trim() && <Text style={styles.contact}>{url ? <Link style={styles.contactLink} src={url}>{r.link.trim()}</Link> : r.link.trim()}</Text>}
-          {(r.salary.trim() || r.workFormat.trim()) && <Text style={styles.contact}>{[r.salary.trim(), r.workFormat.trim()].filter(Boolean).join(' · ')}</Text>}
+          {r.salary.trim() && <Text style={styles.contact}>{r.salary.trim()}</Text>}
         </View>
         {r.photo && /^data:image\/(png|jpeg);base64,/.test(r.photo) && <Image src={r.photo} style={styles.photo} />}
       </View>
@@ -76,7 +91,7 @@ export default function ResumeDocument({ resume: r }: { resume: Resume }) {
       {hasEducation && section('education', 'Образование', <>{educationEntries.slice(1).map(educationEntry)}</>, educationEntries[0] && educationEntry(educationEntries[0]))}
       {r.skills.trim() && section('skills', 'Навыки', <Paragraphs text={r.skills} />)}
       {r.languages.trim() && section('languages', 'Языки', <Paragraphs text={r.languages} />)}
-      {r.projects.trim() && section('projects', 'Проекты и ссылки', <Paragraphs text={r.projects} />)}
+      {r.projects.trim() && section('projects', 'Проекты и ссылки', <Projects text={r.projects} />)}
       <Text fixed wrap={false} style={styles.footer} render={({pageNumber,totalPages})=>`${pageNumber} / ${totalPages}`}/>
     </Page>
   </Document>;
