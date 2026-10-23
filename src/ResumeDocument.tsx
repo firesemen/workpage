@@ -36,13 +36,14 @@ function Paragraphs({ text, bullets = false }: { text: string; bullets?: boolean
   return <>{text.split('\n').map((line, i) => line.trim() ? <Text key={i} style={bullets ? styles.bullet : styles.text} orphans={2} widows={2}>{bullets ? `• ${line.trim().replace(/^[•\-]\s*/, '')}` : /^https?:\/\//i.test(line.trim()) && safeLink(line.trim()) ? <Link style={{ color: '#285c4f', textDecoration: 'none' }} src={safeLink(line.trim())}>{line.trim()}</Link> : line.trim()}</Text> : null)}</>;
 }
 
-function Projects({ text }: { text: string }) {
+function Projects({ text, keepTogether }: { text: string; keepTogether: ReadonlySet<string> }) {
   // Blank lines separate projects, while a single newline stays inside a project.
   // Normalize pasted Windows line endings and whitespace-only separator lines.
   const projects = text.replace(/\r\n?/g, '\n').trim().split(/\n(?:[ \t]*\n)+/);
   return <>{projects.map((project, projectIndex) => {
     const lines = project.split('\n').map(line => line.trim()).filter(Boolean);
-    return <View key={projectIndex} style={{ marginTop: projectIndex ? 10 : 0 }}>
+    const id = `keep-project-${projectIndex}`;
+    return <View key={projectIndex} id={id} wrap={!keepTogether.has(id)} style={{ marginTop: projectIndex ? 10 : 0 }}>
       {lines.map((value, lineIndex) => {
         const link = /^(https?:\/\/|www\.)/i.test(value) ? safeLink(value) : '';
         const title = lineIndex === 0;
@@ -62,13 +63,23 @@ function displayPhone(value: string) {
   return digits.length === 10 ? `+7 ${digits.slice(0, 3)} ${digits.slice(3, 6)}-${digits.slice(6, 8)}-${digits.slice(8)}` : value;
 }
 
-export default function ResumeDocument({ resume: r }: { resume: Resume }) {
+type DocumentOptions = {
+  resume: Resume;
+  keepTogether?: ReadonlySet<string>;
+  measure?: boolean;
+  onRender?: (result: unknown) => void;
+};
+
+export default function ResumeDocument({ resume: r, keepTogether = new Set<string>(), measure = false, onRender }: DocumentOptions) {
   const accent = r.template === 'modern' ? '#285c4f' : '#252b29';
   const visible = (key: string) => !r.hidden.includes(key);
   const hasExperience = r.experience.some(e => e.role.trim() || e.company.trim() || e.description.trim());
   const hasEducation = r.education.some(e => e.school.trim() || e.degree.trim() || e.year.trim());
   const heading = (title: string) => <Text style={[styles.heading, { color: accent, borderBottomColor: r.template === 'modern' ? '#b6cec3' : '#b6bab8', letterSpacing: r.template === 'modern' ? 1.2 : 0.5, textAlign: 'left' }]} wrap={false} minPresenceAhead={90}>{title}</Text>;
-  const section = (key: string, title: string, children: ReactNode, lead?: ReactNode) => visible(key) ? <View>{lead ? <View wrap={false}>{heading(title)}{lead}</View> : heading(title)}{children}</View> : null;
+  const section = (key: string, title: string, children: ReactNode, lead?: ReactNode) => {
+    const id = `keep-section-${key}`;
+    return visible(key) ? <View id={id} wrap={!keepTogether.has(id)}>{lead ? <View wrap={false}>{heading(title)}{lead}</View> : heading(title)}{children}</View> : null;
+  };
   const educationEntries = r.education.filter(e => e.school.trim() || e.degree.trim() || e.year.trim());
   const educationEntry = (e: Resume['education'][number]) => <View key={e.id} style={styles.entry}>
     <Text style={styles.entryTitle}>{e.school.trim()}</Text>
@@ -76,8 +87,8 @@ export default function ResumeDocument({ resume: r }: { resume: Resume }) {
     {e.year.trim() && <Text style={styles.dates}>{e.year.trim()}</Text>}
   </View>;
   const url = safeLink(r.link);
-  return <Document title={`${r.name.trim() || 'Резюме'}${r.title.trim() ? ` — ${r.title.trim()}` : ''}`} author={r.name} subject="Резюме" language="ru-RU" creator="Лист — редактор резюме">
-    <Page size="A4" wrap style={[styles.page, r.density === 'compact' ? { fontSize: 9.5, lineHeight: 1.4, paddingHorizontal: 38, paddingTop: 32 } : {}]}>
+  return <Document onRender={onRender} title={`${r.name.trim() || 'Резюме'}${r.title.trim() ? ` — ${r.title.trim()}` : ''}`} author={r.name} subject="Резюме" language="ru-RU" creator="Лист — редактор резюме">
+    <Page size="A4" wrap={!measure} style={[styles.page, r.density === 'compact' ? { fontSize: 9.5, lineHeight: 1.4, paddingHorizontal: 38, paddingTop: 32 } : {}]}>
       <View style={styles.header}>
         <View style={styles.identity}>
           <Text style={[styles.name, { color: accent }]}>{r.name.trim() || 'Резюме'}</Text>
@@ -101,15 +112,46 @@ export default function ResumeDocument({ resume: r }: { resume: Resume }) {
       {hasEducation && section('education', 'Образование', <>{educationEntries.slice(1).map(educationEntry)}</>, educationEntries[0] && educationEntry(educationEntries[0]))}
       {r.skills.trim() && section('skills', 'Навыки', <Paragraphs text={r.skills} />)}
       {r.languages.trim() && section('languages', 'Языки', <Paragraphs text={r.languages} />)}
-      {r.projects.trim() && section('projects', 'Проекты и ссылки', <Projects text={r.projects} />)}
-      <Text fixed wrap={false} style={styles.footer} render={({pageNumber,totalPages})=>`${pageNumber} / ${totalPages}`}/>
+      {r.projects.trim() && section('projects', 'Проекты и ссылки', <Projects text={r.projects} keepTogether={keepTogether} />)}
+      {!measure && <Text fixed wrap={false} style={styles.footer} render={({pageNumber,totalPages})=>`${pageNumber} / ${totalPages}`}/>}
     </Page>
   </Document>;
 }
 
+// Measure with the same font metrics and width as the final document. Character
+// counts cannot reliably predict height (URLs, photos, font size and wrapping).
+// react-pdf supplies this layout in its onRender event; isolate the internal
+// payload here and validate it so a dependency change cannot silently clip text.
+type LayoutNode = {
+  props?: { id?: string };
+  box?: { height?: number; marginTop?: number; marginBottom?: number };
+  children?: LayoutNode[];
+};
+
+export async function createResumePdf(resume: Resume): Promise<Blob> {
+  let layout: LayoutNode | undefined;
+  await pdf(<ResumeDocument resume={resume} measure onRender={result => {
+    layout = (result as { _INTERNAL__LAYOUT__DATA_?: LayoutNode })._INTERNAL__LAYOUT__DATA_;
+  }} />).toBlob();
+  if (!layout?.children?.length) throw new Error('Не удалось измерить разделы PDF.');
+  const availableHeight = 841.89 - (resume.density === 'compact' ? 32 : 39) - 72;
+  const keepTogether = new Set<string>();
+  function visit(node: LayoutNode) {
+    if (node.props?.id?.startsWith('keep-')) {
+      const height = node.box?.height;
+      if (height === undefined || !Number.isFinite(height)) throw new Error('Не удалось измерить высоту раздела PDF.');
+      const outerHeight = height + (node.box?.marginTop || 0) + (node.box?.marginBottom || 0);
+      if (outerHeight <= availableHeight - 1) keepTogether.add(node.props.id);
+    }
+    node.children?.forEach(visit);
+  }
+  visit(layout);
+  return pdf(<ResumeDocument resume={resume} keepTogether={keepTogether} />).toBlob();
+}
+
 /** Browser-only download; object URLs are revoked after the browser starts it. */
 export async function downloadResumePdf(resume: Resume) {
-  const blob = await pdf(<ResumeDocument resume={resume} />).toBlob();
+  const blob = await createResumePdf(resume);
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;

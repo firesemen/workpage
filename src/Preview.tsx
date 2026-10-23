@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { pdf } from "@react-pdf/renderer";
 import * as pdfjs from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import ResumeDocument from "./ResumeDocument";
+import { createResumePdf } from "./ResumeDocument";
 import type { Resume } from "./model";
 import { LoaderCircle } from "lucide-react";
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
@@ -20,7 +19,7 @@ export default function Preview({ resume }: { resume: Resume }) {
       let doc: pdfjs.PDFDocumentProxy | undefined;
       let loading: pdfjs.PDFDocumentLoadingTask | undefined;
       try {
-        const blob = await pdf(<ResumeDocument resume={resume} />).toBlob();
+        const blob = await createResumePdf(resume);
         if (cancelled) return;
         loading = pdfjs.getDocument({
           data: new Uint8Array(await blob.arrayBuffer()),

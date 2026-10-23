@@ -125,11 +125,8 @@ export default function App() {
     setExporting(true);
     setError("");
     try {
-      const [{ pdf }, { default: Document }] = await Promise.all([
-        import("@react-pdf/renderer"),
-        import("./ResumeDocument"),
-      ]);
-      const blob = await pdf(<Document resume={resume} />).toBlob();
+      const { createResumePdf } = await import("./ResumeDocument");
+      const blob = await createResumePdf(resume);
       saveBlob(blob, `${resume.name.trim() || "Резюме"}.pdf`);
       setNotice("PDF готов. Файл передан браузеру для скачивания.");
     } catch (e) {

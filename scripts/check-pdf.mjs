@@ -15,15 +15,15 @@ await build({
     resolveDir: root,
     loader: 'tsx',
     contents: `import React from 'react';
-      import { Font, renderToBuffer } from '@react-pdf/renderer';
-      import ResumeDocument from './src/ResumeDocument';
+      import { Font } from '@react-pdf/renderer';
+      import { createResumePdf } from './src/ResumeDocument';
       import { sampleResume, emptyResume } from './src/model';
       // Component font URLs are web-root URLs. Replace their registered sources
       // with absolute local paths for this Node test, retaining built-in fonts.
       const family = Font.getRegisteredFonts()['Noto Sans'];
       for (const source of family.sources) source.src = ${JSON.stringify(path.join(root, 'public'))} + source.src;
       export { sampleResume, emptyResume };
-      export const render = resume => renderToBuffer(<ResumeDocument resume={resume}/>);`,
+      export const render = async resume => Buffer.from(await (await createResumePdf(resume)).arrayBuffer());`,
   },
   bundle: true, platform: 'node', format: 'esm', packages: 'external', outfile: modulePath,
 });
@@ -116,5 +116,51 @@ await inspect('project-groups-pagination', { ...emptyResume(), projects: manyPro
       assert(items.some(i => i.str === `Описание проекта ${number}`), 'Project title must stay with its description');
     }
   });
+// A section which fits a fresh page must move as a whole, not leave its
+// heading/first project in the last few lines of the preceding page.
+for (const template of ['modern', 'classic']) {
+  for (const density of ['normal', 'compact']) {
+    const projects = Array.from({ length: 3 }, (_, i) => `Целый проект ${i + 1}\nОписание целого проекта ${i + 1}\nРезультат целого проекта ${i + 1}`).join('\n\n');
+    const boundaryResume = {
+      ...emptyResume(), template, density,
+      summary: Array.from({ length: 28 }, (_, i) => `Подготовительный текст ${i + 1}`).join('\n'),
+      projects,
+    };
+    await inspect(`${template}-${density}-whole-projects`, boundaryResume,
+      ['Целый проект 1', 'Результат целого проекта 3'], 2, 2, [], (items, page) => {
+        const heading = items.some(i => i.str.replace(/\s/g, '') === 'ПРОЕКТЫИССЫЛКИ');
+        const projectLines = items.filter(i => /[Цц]елого? проект|Целый проект/.test(i.str));
+        if (page === 1) {
+          assert(!heading && projectLines.length === 0, 'The first page must not retain any part of the project section');
+        } else {
+          assert(heading, 'Moved section needs its heading');
+          for (let n = 1; n <= 3; n++) {
+            for (const line of [`Целый проект ${n}`, `Описание целого проекта ${n}`, `Результат целого проекта ${n}`]) {
+              assert(items.some(i => i.str === line), `Project section lost ${line}`);
+            }
+          }
+        }
+      });
+  }
+}
+
+// The policy applies to other sections too, including the first section after
+// a tall header. Oversize sections remain covered by the long-resume cases.
+const filler = Array.from({ length: 28 }, (_, i) => `Предыдущий раздел ${i + 1}`).join('\n');
+const cases = [
+  ['summary', { title: Array(32).fill('Строка шапки').join('\n'), summary: Array(10).fill('Содержимое раздела').join('\n') }, 'ОСЕБЕ'],
+  ['experience', { summary: filler, experience: [{ id: 'whole', company: 'Компания', role: 'Должность', start: '', end: '', current: false, description: Array(10).fill('Содержимое раздела').join('\n') }] }, 'ОПЫТРАБОТЫ'],
+  ['education', { summary: filler, education: Array.from({length: 5}, (_, i) => ({ id: `whole-${i}`, school: 'Содержимое раздела', degree: 'Образовательная программа', year: '2026' })) }, 'ОБРАЗОВАНИЕ'],
+  ['skills', { summary: filler, skills: Array(10).fill('Содержимое раздела').join('\n') }, 'НАВЫКИ'],
+  ['languages', { summary: filler, languages: Array(10).fill('Содержимое раздела').join('\n') }, 'ЯЗЫКИ'],
+];
+for (const [name, data, headingText] of cases) {
+  await inspect(`whole-${name}`, { ...emptyResume(), ...data }, ['Содержимое раздела'], 2, 2, [], (items, page) => {
+    const hasHeading = items.some(i => i.str.replace(/\s/g, '') === headingText);
+    const body = items.filter(i => i.str.includes('Содержимое раздела'));
+    if (page === 1) assert(!hasHeading && !body.length, `Section ${name} must move completely`);
+    else assert(hasHeading && body.length, `Section ${name} must retain its heading and body`);
+  });
+}
 await rm(modulePath);
 console.log(`PDF artifacts: ${work}`);
