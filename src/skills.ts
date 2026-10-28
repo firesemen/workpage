@@ -104,6 +104,48 @@ export function parseSkills(text: string): string[] {
   return text.split(/[,;\r\n]+/).map(value => value.trim()).filter(Boolean);
 }
 
+export const SKILL_GROUPS = [
+  'Языки', 'Backend и базы данных', 'Frontend', 'Анализ данных',
+  'Машинное обучение и ИИ', 'Инструменты', 'Тестирование', 'Дизайн',
+  'Основы разработки', 'Управление и бизнес', 'Другие навыки',
+] as const;
+
+export type SkillGroupAssignments = Record<string, string>;
+export type SkillGroup = { name: string; skills: string[] };
+
+export function defaultSkillGroup(value: string): string {
+  const skill = byAlias.get(key(value));
+  const name = skill?.name;
+  if (['SQL', 'PostgreSQL', 'MySQL', 'SQLite', 'MongoDB', 'Redis', 'Проектирование БД'].includes(name ?? '')) return 'Backend и базы данных';
+  if (['pandas', 'NumPy', 'Анализ данных', 'Power BI', 'Excel'].includes(name ?? '')) return 'Анализ данных';
+  if (['ООП', 'Алгоритмы и структуры данных'].includes(name ?? '')) return 'Основы разработки';
+  if (key(value) === 'html и css') return 'Frontend';
+  switch (skill?.category) {
+    case 'Языки программирования': return 'Языки';
+    case 'Веб-разработка': return ['HTML', 'CSS', 'React', 'Vue.js', 'Angular', 'Next.js'].includes(name!) ? 'Frontend' : 'Backend и базы данных';
+    case 'Данные и ИИ': return 'Машинное обучение и ИИ';
+    case 'Инструменты и инфраструктура': return 'Инструменты';
+    case 'Тестирование': return 'Тестирование';
+    case 'Дизайн': return 'Дизайн';
+    case 'Методы работы и бизнес': return 'Управление и бизнес';
+    default: return 'Другие навыки';
+  }
+}
+
+export function groupSkills(text: string, assignments: SkillGroupAssignments = {}): SkillGroup[] {
+  const groups = new Map<string, string[]>();
+  for (const skill of parseSkills(text)) {
+    const id = skillKey(skill);
+    const name = Object.hasOwn(assignments, id) ? assignments[id] : defaultSkillGroup(skill);
+    if (!groups.has(name)) groups.set(name, []);
+    groups.get(name)!.push(skill);
+  }
+  const order: string[] = [...SKILL_GROUPS];
+  const rank = (name: string) => order.includes(name) ? order.indexOf(name) : order.length;
+  return [...groups].sort(([a], [b]) => rank(a) - rank(b))
+    .map(([name, skills]) => ({ name, skills }));
+}
+
 export function addSkills(text: string, input: string): string {
   const selected = new Set(parseSkills(text).map(skillKey));
   const additions: string[] = [];

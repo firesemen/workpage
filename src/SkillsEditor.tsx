@@ -1,8 +1,11 @@
 import { useId, useState } from 'react';
 import { Plus, X } from 'lucide-react';
-import { addSkills, parseSkills, searchSkills, suggestSkills } from './skills';
+import { addSkills, parseSkills, searchSkills, suggestSkills, groupSkills, skillKey, SKILL_GROUPS, type SkillGroupAssignments } from './skills';
 
-export default function SkillsEditor({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+export default function SkillsEditor({ value, onChange, assignments = {}, onGroupsChange }: {
+  value: string; onChange: (value: string) => void;
+  assignments?: SkillGroupAssignments; onGroupsChange: (groups: SkillGroupAssignments) => void;
+}) {
   const id = useId();
   const [query, setQuery] = useState('');
   const [notice, setNotice] = useState('');
@@ -10,6 +13,7 @@ export default function SkillsEditor({ value, onChange }: { value: string; onCha
   const matches = searchSkills(query, value);
   const suggestions = suggestSkills(value);
   const categories = [...new Set(matches.map(skill => skill.category))];
+  const groups = groupSkills(value, assignments);
 
   function add(input: string) {
     const next = addSkills(value, input);
@@ -29,15 +33,33 @@ export default function SkillsEditor({ value, onChange }: { value: string; onCha
   return <section className="skills-picker" aria-labelledby={`${id}-title`}>
     <h2 id={`${id}-title`} className="field-label">Профессиональные навыки</h2>
     <p className="hint">Выберите из списка или введите свой навык. Несколько навыков можно вставить через запятую.</p>
-    {selected.length > 0 && <ul className="skill-tags" aria-label="Добавленные навыки">
-      {selected.map((skill, index) => <li key={`${index}-${skill}`}>
-        <span>{skill}</span>
-        <button type="button" aria-label={`Удалить навык ${skill}`} onClick={() => {
-          onChange(selected.filter((_, i) => i !== index).join(', '));
-          setNotice(`Удалён навык: ${skill}`);
-        }}><X size={14}/></button>
-      </li>)}
-    </ul>}
+    {selected.length > 0 && <>
+      <div className="selected-skill-groups" role="list" aria-label="Добавленные навыки">
+        {groups.map(group => <section className="selected-skill-group" key={group.name}>
+          <h3>{group.name}</h3><div className="skill-tags">
+            {group.skills.map((skill, index) => <div className="skill-tag" role="listitem" key={`${index}-${skill}`}>
+              <span>{skill}</span>
+              <button type="button" aria-label={`Удалить навык ${skill}`} onClick={() => {
+                const removeAt = selected.indexOf(skill);
+                onChange(selected.filter((_, i) => i !== removeAt).join(', '));
+                setNotice(`Удалён навык: ${skill}`);
+              }}><X size={14}/></button>
+            </div>)}
+          </div>
+        </section>)}
+      </div>
+      <details className="skill-group-settings"><summary>Изменить группы навыков</summary>
+        <p className="hint">Группы предложены автоматически. В PDF они расположены в две колонки.</p>
+        {groups.flatMap(group => group.skills.map((skill, index) => <label className="field" key={`${group.name}-${index}`}>
+          <span className="field-label">{skill}</span>
+          <select className="input" aria-label={`Группа навыка ${skill}`} value={group.name}
+            onChange={event => onGroupsChange({ ...assignments, [skillKey(skill)]: event.target.value })}>
+            {!SKILL_GROUPS.some(name => name === group.name) && <option>{group.name}</option>}
+            {SKILL_GROUPS.map(name => <option key={name}>{name}</option>)}
+          </select>
+        </label>))}
+      </details>
+    </>}
     <label className="field"><span className="field-label">Найти или ввести навык</span>
       <input className="input" value={query} maxLength={500} placeholder="Например, Python, React или Figma" onChange={event => setQuery(event.target.value)}
         onKeyDown={event => {

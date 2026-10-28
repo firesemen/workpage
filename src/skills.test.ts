@@ -1,7 +1,24 @@
 import { describe, expect, it } from 'vitest';
-import { SKILLS, addSkills, parseSkills, searchSkills, skillKey, suggestSkills } from './skills';
+import { SKILLS, addSkills, parseSkills, searchSkills, skillKey, suggestSkills, groupSkills } from './skills';
 
 describe('skill selection and suggestions', () => {
+  it('groups old skill text by topic without rewriting or dropping custom names', () => {
+    const groups = groupSkills('python, Golang\nFlask; SQL, postgres, pandas, promt engineering, Мой инструмент');
+    expect(groups).toEqual([
+      { name: 'Языки', skills: ['python', 'Golang'] },
+      { name: 'Backend и базы данных', skills: ['Flask', 'SQL', 'postgres'] },
+      { name: 'Анализ данных', skills: ['pandas'] },
+      { name: 'Машинное обучение и ИИ', skills: ['promt engineering'] },
+      { name: 'Другие навыки', skills: ['Мой инструмент'] },
+    ]);
+  });
+  it('honors manual assignments for aliases, skips empty groups and preserves duplicates', () => {
+    expect(groupSkills('Golang, Go', { go: 'Инструменты', unused: 'Дизайн' })).toEqual([
+      { name: 'Инструменты', skills: ['Golang', 'Go'] },
+    ]);
+    expect(groupSkills('')).toEqual([]);
+    expect(groupSkills('constructor')[0].name).toBe('Другие навыки');
+  });
   it('reads old lists without discarding custom names or C++/C# punctuation', () => {
     expect(parseSkills('Python, C++, C#; Мой инструмент\r\nПроектирование БД,')).toEqual([
       'Python', 'C++', 'C#', 'Мой инструмент', 'Проектирование БД',

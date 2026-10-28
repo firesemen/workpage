@@ -540,7 +540,7 @@ export default function Editor({ resume, onChange, section }: Props) {
       )}
       {key === "skills" && (
         <>
-          <SkillsEditor value={resume.skills} onChange={value => set("skills", value)}/>
+          <SkillsEditor value={resume.skills} onChange={value => set("skills", value)} assignments={resume.skillGroups} onGroupsChange={value => set("skillGroups", value)}/>
           <LanguageEditor value={resume.languages} onChange={value => set("languages", value)}/>
           <label className="visibility-toggle">
             <input

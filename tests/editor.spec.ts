@@ -175,6 +175,46 @@ test('legacy skill lists retain custom content and support alias-aware recommend
   expect(backup.skills).toBe(skills + ', PostgreSQL');
 });
 
+test('manual skill groups survive reload, JSON backup and the downloaded PDF', async ({ page }, testInfo) => {
+  await page.goto('/');
+  const skills = 'Python, SQL, Docker, Git, PyTorch, Личный инструмент';
+  await page.locator('input[type=file][accept="application/json,.json"]').setInputFiles({
+    name: 'groups.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ ...emptyResume(), skills })),
+  });
+  await page.getByRole('dialog').getByRole('button', { name: 'Продолжить', exact: true }).click();
+  await page.getByRole('navigation').getByRole('button', { name: 'Навыки и языки' }).click();
+  await page.getByText('Изменить группы навыков', { exact: true }).click();
+  await page.getByRole('combobox', { name: 'Группа навыка Python', exact: true }).selectOption('Анализ данных');
+  await page.getByRole('combobox', { name: 'Группа навыка Личный инструмент', exact: true }).selectOption('Инструменты');
+  const expected = { python: 'Анализ данных', 'личный инструмент': 'Инструменты' };
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('list-resume-v1') || '{}').skillGroups)).toEqual(expected);
+  await page.reload();
+  await page.getByRole('navigation').getByRole('button', { name: 'Навыки и языки' }).click();
+  await page.getByText('Изменить группы навыков', { exact: true }).click();
+  await expect(page.getByRole('combobox', { name: 'Группа навыка Python', exact: true })).toHaveValue('Анализ данных');
+  const backupPromise = page.waitForEvent('download');
+  await actions(page, 'Сохранить JSON');
+  const backup = JSON.parse(await readFile((await (await backupPromise).path())!, 'utf8'));
+  expect(backup.skillGroups).toEqual(expected);
+  expect(backup.skills).toBe(skills);
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Скачать PDF', exact: true }).click();
+  const bytes = await readFile((await (await downloadPromise).path())!);
+  const task = getDocument({ data: new Uint8Array(bytes) });
+  const doc = await task.promise;
+  const content = await (await doc.getPage(1)).getTextContent();
+  const text = content.items.map(item => 'str' in item ? item.str : '').join(' ');
+  for (const skill of skills.split(', ')) expect(text).toContain(skill);
+  expect(text).toContain('Анализ данных');
+  expect(text).not.toContain('Другие навыки');
+  expect(text).not.toContain('Языки');
+  await task.destroy();
+  await page.getByText('Изменить группы навыков', { exact: true }).click();
+  await page.screenshot({ path: testInfo.outputPath('skill-groups-desktop.png'), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+});
+
 test('language dropdowns save selected proficiency, custom languages and export them to PDF', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');

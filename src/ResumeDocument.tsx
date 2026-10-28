@@ -2,6 +2,7 @@ import { Document, Font, Image, Link, Page, StyleSheet, Text, View, pdf } from '
 import type { ReactNode } from 'react';
 import type { Resume } from './model';
 import { dateLabel, safeLink } from './model';
+import ResumeSkills from './ResumeSkills';
 
 // These fonts are shipped with the application. No résumé data or font request
 // needs to leave the device when a PDF is generated.
@@ -67,10 +68,11 @@ type DocumentOptions = {
   resume: Resume;
   keepTogether?: ReadonlySet<string>;
   measure?: boolean;
+  fontFamily?: string;
   onRender?: (result: unknown) => void;
 };
 
-export default function ResumeDocument({ resume: r, keepTogether = new Set<string>(), measure = false, onRender }: DocumentOptions) {
+export default function ResumeDocument({ resume: r, keepTogether = new Set<string>(), measure = false, fontFamily = 'Noto Sans', onRender }: DocumentOptions) {
   const accent = r.template === 'modern' ? '#285c4f' : '#252b29';
   const visible = (key: string) => !r.hidden.includes(key);
   const hasExperience = r.experience.some(e => e.role.trim() || e.company.trim() || e.description.trim());
@@ -88,7 +90,7 @@ export default function ResumeDocument({ resume: r, keepTogether = new Set<strin
   </View>;
   const url = safeLink(r.link);
   return <Document onRender={onRender} title={`${r.name.trim() || 'Резюме'}${r.title.trim() ? ` — ${r.title.trim()}` : ''}`} author={r.name} subject="Резюме" language="ru-RU" creator="Лист — редактор резюме">
-    <Page size="A4" wrap={!measure} style={[styles.page, r.density === 'compact' ? { fontSize: 9.5, lineHeight: 1.4, paddingHorizontal: 38, paddingTop: 32 } : {}]}>
+    <Page size="A4" wrap={!measure} style={[styles.page, { fontFamily }, r.density === 'compact' ? { fontSize: 9.5, lineHeight: 1.4, paddingHorizontal: 38, paddingTop: 32 } : {}]}>
       <View style={styles.header}>
         <View style={styles.identity}>
           <Text style={[styles.name, { color: accent }]}>{r.name.trim() || 'Резюме'}</Text>
@@ -110,7 +112,7 @@ export default function ResumeDocument({ resume: r, keepTogether = new Set<strin
         <Paragraphs text={e.description} bullets />
       </View>)}</>)}
       {hasEducation && section('education', 'Образование', <>{educationEntries.slice(1).map(educationEntry)}</>, educationEntries[0] && educationEntry(educationEntries[0]))}
-      {r.skills.trim() && section('skills', 'Навыки', <Paragraphs text={r.skills} />)}
+      {r.skills.trim() && section('skills', 'Навыки', <ResumeSkills text={r.skills} assignments={r.skillGroups} keepTogether={keepTogether} modern={r.template === 'modern'} />)}
       {r.languages.trim() && section('languages', 'Языки', <Paragraphs text={r.languages} />)}
       {r.projects.trim() && section('projects', 'Проекты и ссылки', <Projects text={r.projects} keepTogether={keepTogether} />)}
       {!measure && <Text fixed wrap={false} style={styles.footer} render={({pageNumber,totalPages})=>`${pageNumber} / ${totalPages}`}/>}
@@ -128,11 +130,30 @@ type LayoutNode = {
   children?: LayoutNode[];
 };
 
+let fontGeneration = 0;
+
+// The renderer retains mutable font/glyph state across documents. Reusing it
+// can lose Latin characters after a different résumé has been rendered. Give
+// each pass its own font instances, including simultaneous preview/downloads.
+// Only our temporary family is removed; built-in fonts and other jobs survive.
+async function renderDocument(options: DocumentOptions): Promise<Blob> {
+  const fonts = Font.getRegisteredFonts();
+  const fontFamily = `Resume Sans ${++fontGeneration}`;
+  Font.register({ family: fontFamily, fonts: fonts['Noto Sans'].sources.map(source => ({
+    src: source.src, fontWeight: source.fontWeight, fontStyle: source.fontStyle,
+  })) });
+  try {
+    return await pdf(<ResumeDocument {...options} fontFamily={fontFamily} />).toBlob();
+  } finally {
+    delete fonts[fontFamily];
+  }
+}
+
 export async function createResumePdf(resume: Resume): Promise<Blob> {
   let layout: LayoutNode | undefined;
-  await pdf(<ResumeDocument resume={resume} measure onRender={result => {
+  await renderDocument({ resume, measure: true, onRender: result => {
     layout = (result as { _INTERNAL__LAYOUT__DATA_?: LayoutNode })._INTERNAL__LAYOUT__DATA_;
-  }} />).toBlob();
+  } });
   if (!layout?.children?.length) throw new Error('Не удалось измерить разделы PDF.');
   const availableHeight = 841.89 - (resume.density === 'compact' ? 32 : 39) - 72;
   const keepTogether = new Set<string>();
@@ -146,7 +167,7 @@ export async function createResumePdf(resume: Resume): Promise<Blob> {
     node.children?.forEach(visit);
   }
   visit(layout);
-  return pdf(<ResumeDocument resume={resume} keepTogether={keepTogether} />).toBlob();
+  return renderDocument({ resume, keepTogether });
 }
 
 /** Browser-only download; object URLs are revoked after the browser starts it. */

@@ -2,6 +2,18 @@ import { describe, expect, it } from 'vitest';
 import { dateLabel, emptyResume, resumeWarnings, safeLink, sampleResume, validateResume } from './model';
 
 describe('resume backup validation', () => {
+  it('loads old backups without group assignments and round-trips manual groups', () => {
+    const old = { ...emptyResume(), skills: 'Python, Личный навык' };
+    delete old.skillGroups;
+    expect(validateResume(old).skillGroups).toEqual({});
+    const resume = { ...old, skillGroups: { python: 'Анализ данных', 'личный навык': 'Инструменты' } };
+    expect(validateResume(JSON.parse(JSON.stringify(resume)))).toEqual(resume);
+  });
+  it('rejects malformed group metadata before rendering PDF', () => {
+    for (const skillGroups of [null, [], 'group', { python: 4 }, { python: '' }, { python: 'a'.repeat(81) }]) {
+      expect(() => validateResume({ ...emptyResume(), skillGroups })).toThrow('группы навыков');
+    }
+  });
   it('round-trips a complete Russian-language resume without losing content or layout', () => {
     const resume = { ...sampleResume(), hidden: ['projects'], density: 'compact' as const, template: 'classic' as const };
     expect(validateResume(JSON.parse(JSON.stringify(resume)))).toEqual(resume);

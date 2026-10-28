@@ -29,6 +29,7 @@ export type Resume = {
   experience: Experience[];
   education: Education[];
   skills: string;
+  skillGroups?: Record<string, string>;
   languages: string;
   projects: string;
   template: Template;
@@ -51,6 +52,7 @@ export const emptyResume = (): Resume => ({
   experience: [],
   education: [],
   skills: "",
+  skillGroups: {},
   languages: "",
   projects: "",
   template: "modern",
@@ -135,6 +137,11 @@ export function validateResume(value: unknown): Resume {
     throw new Error("Некорректное оформление.");
   if (!Array.isArray(v.hidden) || !v.hidden.every((x) => typeof x === "string"))
     throw new Error("Некорректные разделы.");
+  if (v.skillGroups !== undefined && (
+    !v.skillGroups || typeof v.skillGroups !== 'object' || Array.isArray(v.skillGroups) ||
+    Object.keys(v.skillGroups).length > 1000 ||
+    !Object.entries(v.skillGroups).every(([key, value]) => key.length > 0 && key.length <= 30000 && typeof value === 'string' && value.trim().length > 0 && value.length <= 80)
+  )) throw new Error('Некорректные группы навыков.');
   if (
     !Array.isArray(v.experience) ||
     v.experience.length > 100 ||

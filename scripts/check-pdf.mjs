@@ -5,6 +5,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import assert from 'node:assert/strict';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { Font } from '@react-pdf/renderer';
 
 const root = path.resolve(import.meta.dirname, '..');
 const work = path.join(root, 'node_modules/.cache/workpage-pdf-check');
@@ -28,6 +29,7 @@ await build({
   bundle: true, platform: 'node', format: 'esm', packages: 'external', outfile: modulePath,
 });
 const { render, sampleResume, emptyResume } = await import(pathToFileURL(modulePath));
+const initialFonts = Font.getRegisteredFontFamilies();
 
 async function inspect(name, resume, expected, minPages = 1, maxPages = 20, absent = [], checkPage = () => {}) {
   const bytes = await render(resume);
@@ -70,6 +72,7 @@ async function inspect(name, resume, expected, minPages = 1, maxPages = 20, abse
   assert(fontNames.size > 0);
   await task.destroy();
   console.log(`PASS ${name}: ${doc.numPages} A4 page(s), Cyrillic text, embedded fonts, links and bounds`);
+  return all;
 }
 
 for (const template of ['modern', 'classic']) {
@@ -162,5 +165,44 @@ for (const [name, data, headingText] of cases) {
     else assert(hasHeading && body.length, `Section ${name} must retain its heading and body`);
   });
 }
+const groupedSkills = 'Python, C, C++, Golang, Assembler, Docker, Git, Проектирование БД, ООП, promt engineering, R, SQL, Flask, PostgreSQL, pandas, NumPy, Linux, Алгоритмы и структуры данных, Анализ данных, Дообучение ИИ-моделей, PyTorch, Машинное обучение';
+for (const template of ['modern', 'classic']) {
+  await inspect(`skills-groups-${template}`, { ...emptyResume(), template, skills: groupedSkills },
+    groupedSkills.split(', '), 1, 1, [], items => {
+      const find = text => {
+        const item = items.find(i => i.str === text);
+        assert(item, `Missing skill/group: ${text}`);
+        return item;
+      };
+      const left = find('Языки');
+      const right = find('Backend и базы данных');
+      assert(right.transform[4] - left.transform[4] > 240, 'Skill groups need distinct columns');
+      assert(Math.abs(right.transform[5] - left.transform[5]) < 1, 'First pair of group headings must align');
+      assert(find('Python').transform[5] < left.transform[5], 'Badges belong below their heading');
+      for (const skill of ['Python', 'C', 'C++', 'Golang', 'Assembler', 'R']) {
+        const item = find(skill);
+        assert(item.transform[4] + item.width < right.transform[4] - 8, 'Left-column skill crossed into right column');
+      }
+      const ordered = items.map(i => i.str);
+      assert(ordered.indexOf('R') < ordered.indexOf('Backend и базы данных'), 'Extraction must finish the left group before the right group');
+      assert(ordered.indexOf('PostgreSQL') < ordered.indexOf('Анализ данных'), 'Extraction must finish a row before the next row');
+    });
+}
+const longSkillNames = Array.from({ length: 65 }, (_, i) => `Пользовательский навык номер ${i + 1}`);
+const longSkillText = await inspect('skills-oversize-group', {
+  ...emptyResume(), skills: [...longSkillNames, 'SQL'].join(', '),
+  skillGroups: Object.fromEntries(longSkillNames.map(name => [name.toLowerCase(), 'Языки'])),
+}, [...longSkillNames, 'SQL'], 2, 6);
+assert.equal((longSkillText.match(/SQL/g) || []).length, 1, 'Short right-column group must not duplicate across pages');
+await inspect('skills-long-label', {
+  ...emptyResume(), skills: 'Навык с очень длинным названием для проверки переноса внутри метки, ' + 'Длинноеназваниенавыка'.repeat(9),
+}, ['Навык с очень длинным'], 1, 2);
+// Preview and download can overlap, and each must keep its own glyph mapping.
+// Exercise this after different earlier documents have warmed renderer caches.
+await Promise.all(['Alpha', 'Beta'].map(name => inspect(`skills-concurrent-${name}`, {
+  ...emptyResume(), name, skills: groupedSkills,
+  email: `${name}@example.com`, link: `https://example.com/${name}/Python`,
+}, [name, ...groupedSkills.split(', '), `${name}@example.com`, `https://example.com/${name}/Python`], 1, 1)));
+assert.deepEqual(Font.getRegisteredFontFamilies(), initialFonts, 'Exports must clean up temporary fonts without removing shared fonts');
 await rm(modulePath);
 console.log(`PDF artifacts: ${work}`);
